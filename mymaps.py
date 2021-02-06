@@ -13,11 +13,11 @@ if os.path.exists(path):
 
     APP_ID = os.environ.get('APP_ID')
     APP_ID2 = os.environ.get('APP_ID2')
-
+WIDTH, HEIGHT = 600, 450
 pygame.init()
-screen = pygame.display.set_mode((600, 450))
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
 h, w = GetSystemMetrics(1), GetSystemMetrics(0)
-manager = pygame_gui.UIManager((600, 450))
+manager = pygame_gui.UIManager((WIDTH, HEIGHT))
 
 
 user_input = input('Введите долготу и широту '
@@ -85,6 +85,7 @@ def search_obj(search_text):
             'GeocoderMetaData']['text']
         address_label.set_text(address)
         metka = ','.join(list(map(str, coordinates)))
+
         is_metka_hidden = False
         address_label.visible = True
         coords = metka
@@ -124,7 +125,34 @@ def get_postal_number():
                 address_label.set_text(f'{text} - {postal_code}')
 
 
-def show_picture(search_text=None, scale=None, move=None, type_map=None):
+def get_metka_pos(pos):
+    if pos is None:
+        return ''
+    global is_metka_hidden, metka
+    is_metka_hidden = False
+    x, y = pos
+    centerx, centery = WIDTH // 2, HEIGHT // 2
+    long, latt = list(map(float, metka.split(',')))
+    deltax = centerx - x
+    deltay = centery - y
+    x_m = 6378137 * long
+    y_m = 6378137 * math.log(abs(
+        math.tan((math.pi / 4) + (latt / 2)) * (
+            ((1 - math.sqrt(1 - ((6356752 / 6378137) ** 2)) * math.sin(latt))
+             / (1 + math.sqrt(1 - ((6356752 / 6378137) ** 2)) * math.sin(latt)
+                )) ** (math.sqrt(1 - ((6356752 / 6378137) ** 2)) / 2))), 10)
+    print(x_m, y_m)
+    # print(deltax, deltay)
+    # long += math.radians(deltax) / 180
+    # latt += math.radians(deltay) / 180
+    # print(metka)
+    metka = ','.join([str(long), str(latt)])
+    print(metka, '\n')
+    return f"{metka},vkbkm"
+
+
+def show_picture(search_text=None, scale=None,
+                 move=None, type_map=None, mouse=None):
     global zoom_map, coords, is_metka_hidden
     if scale is not None:
         zoom_map = min(19, max(zoom_map + scale, 5))
@@ -139,13 +167,14 @@ def show_picture(search_text=None, scale=None, move=None, type_map=None):
         if move == 'right':
             long = max(-180, min(180, long + math.radians(w) / 180))
         coords = ','.join([str(long), str(latt)])
-    if search_text is not None:
+    if search_text is not None and mouse is None:
         coords = search_obj(search_text)
     map_params = {
         'l': type_m if type_map is None else get_type_map(),
         'll': coords,
         'z': zoom_map,
-        "pt": "{0},vkbkm".format(metka) if not is_metka_hidden else ''
+        "pt": "{0},vkbkm".format(metka)
+        if not is_metka_hidden and mouse is None else get_metka_pos(mouse)
     }
     map_api_server = "http://static-maps.yandex.ru/1.x/"
     response = requests.get(map_api_server, params=map_params)
@@ -169,6 +198,11 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 3:
+                print('click')
+            if event.button == 1:
+                show_picture(mouse=(pygame.mouse.get_pos()))
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_PAGEUP:
                 show_picture(scale=1)
