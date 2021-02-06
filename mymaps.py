@@ -7,7 +7,7 @@ import requests
 import pprint
 from dotenv import load_dotenv
 
-path = os.psth.join(os.path.dirname(__file__), '.env')
+path = os.path.join(os.path.dirname(__file__), '.env')
 if os.path.exists(path):
     load_dotenv(path)
 
@@ -43,7 +43,6 @@ def get_type_map():
 
 
 def search_obj(search_text):
-    print(search_text)
     search_api_server = "https://search-maps.yandex.ru/v1/"
     api_key = APP_ID
     search_params = {
@@ -58,7 +57,9 @@ def search_obj(search_text):
         print("Http статус:", response.status_code, "(", response.reason, ")")
     else:
         json_response = response.json()
-        pprint.pprint(json_response)
+        # pprint.pprint(json_response)
+        coordinates = json_response['features'][0]['geometry']['coordinates']
+        return ','.join(list(map(str, coordinates)))
     return coords
 
 
@@ -84,6 +85,7 @@ def show_picture(search_text=None, scale=None, move=None, type_map=None):
         'l': type_m if type_map is None else get_type_map(),
         'll': coords,
         'z': zoom_map,
+        "pt": "{0},vkbkm".format(coords)
     }
     map_api_server = "http://static-maps.yandex.ru/1.x/"
     response = requests.get(map_api_server, params=map_params)
@@ -101,6 +103,7 @@ FPS = 60
 clock = pygame.time.Clock()
 running = True
 
+response_timer = pygame.time.get_ticks()
 while running:
     time_delta = clock.tick(60) / 1000.0
     for event in pygame.event.get():
@@ -123,7 +126,9 @@ while running:
                 show_picture(type_map='next')
         if event.type == pygame.USEREVENT:
             if event.user_type == pygame_gui.UI_TEXT_ENTRY_FINISHED:
-                show_picture(search_text=event.text)
+                if pygame.time.get_ticks() - response_timer > 3000:
+                    show_picture(search_text=event.text)
+                    response_timer = pygame.time.get_ticks()
         manager.process_events(event)
     screen.fill((0, 0, 0))
     screen.blit(pygame.image.load(map_file), (0, 0))
