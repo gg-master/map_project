@@ -6,6 +6,7 @@ import pygame_gui
 import requests
 import pprint
 from dotenv import load_dotenv
+import convert
 
 path = os.path.join(os.path.dirname(__file__), '.env')
 if os.path.exists(path):
@@ -52,6 +53,45 @@ is_hidden_postal_number = True
 metka = coords
 
 
+def lonlat_distance(a, b):
+
+    degree_to_meters_factor = 111 * 1000  # 111 километров в метрах
+    a_lon, a_lat = a
+    b_lon, b_lat = b
+
+    # Берем среднюю по широте точку и считаем коэффициент для нее.
+    radians_lattitude = math.radians((a_lat + b_lat) / 2.)
+    lat_lon_factor = math.cos(radians_lattitude)
+
+    # Вычисляем смещения в метрах по вертикали и горизонтали.
+    dx = abs(a_lon - b_lon) * degree_to_meters_factor * lat_lon_factor
+    dy = abs(a_lat - b_lat) * degree_to_meters_factor
+
+    # Вычисляем расстояние между точками.
+    distance = math.sqrt(dx * dx + dy * dy)
+
+    return distance
+
+
+def address_by_coord(coord):
+    geocoder_request = f"https://geocode-maps.yandex.ru/1." \
+        f"x/?apikey=40d1649f-0493-4b70-98ba-98533de7" \
+        f"710b&geocode={coord}&format=json"
+    # Выполняем запрос.
+    r = requests.get(geocoder_request)
+    if r:
+        json = r.json()
+        addres = json['response'][
+            'GeoObjectCollection']['featureMember'][0][
+            'GeoObject']['metaDataProperty']['GeocoderMetaData']['Address']
+        address_text = addres['formatted']
+        return address_text
+    else:
+        print("Ошибка выполнения запроса:")
+        print(geocoder_request)
+        print("Http статус:", r.status_code, "(", r.reason, ")")
+
+
 def get_type_map():
     global type_m
     index = available_type.index(type_m)
@@ -60,6 +100,34 @@ def get_type_map():
         index = 0
     type_m = available_type[index]
     return type_m
+
+
+def get_nearst_biz_by_metka():
+    search_api_server = "https://search-maps.yandex.ru/v1/"
+    api_key = APP_ID
+    # print(list(reversed(list(metka.split(',')))))
+    search_params = {
+        "apikey": api_key,
+        "text": address_by_coord(metka),
+        "lang": "ru_RU",
+        "ll": metka,
+        'spn': '0.0005,0.0005',
+        "type": "biz"
+    }
+    response = requests.get(search_api_server, params=search_params)
+    if not response:
+        print("Ошибка выполнения запроса:")
+        print(response)
+        print("Http статус:", response.status_code, "(", response.reason, ")")
+    else:
+        json_response = response.json()
+        for biz in json_response['features']:
+            if lonlat_distance(biz['geometry']['coordinates'],
+                               list(map(float, metka.split(',')))) <= 50:
+                address_label.set_text(biz['properties']['name'])
+                show_picture(biz=','.join(list(map(str, biz['geometry'][
+                                                           'coordinates']))))
+                return
 
 
 def search_obj(search_text):
@@ -81,31 +149,24 @@ def search_obj(search_text):
         # pprint.pprint(json_response)
         element = json_response['features'][0]
         coordinates = element['geometry']['coordinates']
-        address = element['properties'][
-            'GeocoderMetaData']['text']
-        address_label.set_text(address)
         metka = ','.join(list(map(str, coordinates)))
 
         is_metka_hidden = False
         address_label.visible = True
         coords = metka
-        get_postal_number()
+        get_addres_and_postal_number(metka)
         return metka
     return coords
 
 
-def get_postal_number():
+def get_addres_and_postal_number(pos):
     global is_hidden_postal_number
     if not is_metka_hidden:
         is_hidden_postal_number = not is_hidden_postal_number
-        if is_hidden_postal_number:
-            text = address_label.text
-            address_label.set_text(''.join(text.split(' - ')[0]))
-            return
         geocoder_api_server = "http://geocode-maps.yandex.ru/1.x/"
         geocoder_params = {
             "apikey": APP_ID2,
-            "geocode": coords,
+            "geocode": pos,
             "format": "json"}
 
         response = requests.get(geocoder_api_server, params=geocoder_params)
@@ -116,10 +177,13 @@ def get_postal_number():
                   ")")
         else:
             json_response = response.json()
+            # pprint.pprint(json_response)
             addres = json_response['response'][
                 'GeoObjectCollection']['featureMember'][0][
                 'GeoObject']['metaDataProperty']['GeocoderMetaData']['Address']
-            if 'postal_code' in addres:
+            address_text = addres['formatted']
+            address_label.set_text(address_text)
+            if 'postal_code' in addres and not is_hidden_postal_number:
                 postal_code = addres['postal_code']
                 text = address_label.text
                 address_label.set_text(f'{text} - {postal_code}')
@@ -132,27 +196,19 @@ def get_metka_pos(pos):
     is_metka_hidden = False
     x, y = pos
     centerx, centery = WIDTH // 2, HEIGHT // 2
-    long, latt = list(map(float, metka.split(',')))
+    long, latt = list(map(float, coords.split(',')))
     deltax = centerx - x
     deltay = centery - y
-    x_m = 6378137 * long
-    y_m = 6378137 * math.log(abs(
-        math.tan((math.pi / 4) + (latt / 2)) * (
-            ((1 - math.sqrt(1 - ((6356752 / 6378137) ** 2)) * math.sin(latt))
-             / (1 + math.sqrt(1 - ((6356752 / 6378137) ** 2)) * math.sin(latt)
-                )) ** (math.sqrt(1 - ((6356752 / 6378137) ** 2)) / 2))), 10)
-    print(x_m, y_m)
-    # print(deltax, deltay)
-    # long += math.radians(deltax) / 180
-    # latt += math.radians(deltay) / 180
-    # print(metka)
-    metka = ','.join([str(long), str(latt)])
-    print(metka, '\n')
+    x2, y2 = convert.ll2px(latt, long, zoom_map)
+    x2 += -deltax
+    y2 += -deltay
+    latt2, long2 = convert.px2ll(x2, y2, zoom_map)
+    metka = ','.join([str(long2), str(latt2)])
     return f"{metka},vkbkm"
 
 
 def show_picture(search_text=None, scale=None,
-                 move=None, type_map=None, mouse=None):
+                 move=None, type_map=None, mouse=None, biz=None):
     global zoom_map, coords, is_metka_hidden
     if scale is not None:
         zoom_map = min(19, max(zoom_map + scale, 5))
@@ -169,12 +225,16 @@ def show_picture(search_text=None, scale=None,
         coords = ','.join([str(long), str(latt)])
     if search_text is not None and mouse is None:
         coords = search_obj(search_text)
+    if mouse is not None:
+        get_metka_pos(mouse)
+        get_addres_and_postal_number(metka)
+        address_label.visible = True
+    st = '' if biz is None else f"~{biz},pm2blywl"
     map_params = {
         'l': type_m if type_map is None else get_type_map(),
         'll': coords,
         'z': zoom_map,
-        "pt": "{0},vkbkm".format(metka)
-        if not is_metka_hidden and mouse is None else get_metka_pos(mouse)
+        "pt": f"{metka},vkbkm{st}" if not is_metka_hidden else ''
     }
     map_api_server = "http://static-maps.yandex.ru/1.x/"
     response = requests.get(map_api_server, params=map_params)
@@ -200,7 +260,7 @@ while running:
             running = False
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 3:
-                print('click')
+                get_nearst_biz_by_metka()
             if event.button == 1:
                 show_picture(mouse=(pygame.mouse.get_pos()))
         if event.type == pygame.KEYDOWN:
@@ -218,6 +278,8 @@ while running:
                 show_picture(move='right')
             elif event.key == pygame.K_TAB:
                 show_picture(type_map='next')
+            elif event.key == pygame.K_p:
+                get_addres_and_postal_number(metka)
         if event.type == pygame.USEREVENT:
             if event.user_type == pygame_gui.UI_TEXT_ENTRY_FINISHED:
                 if pygame.time.get_ticks() - response_timer > 3000:
@@ -229,7 +291,7 @@ while running:
                     address_label.visible = False
                     show_picture()
                 if event.ui_element == postal_trigger:
-                    get_postal_number()
+                    get_addres_and_postal_number(metka)
         manager.process_events(event)
     screen.fill((0, 0, 0))
     screen.blit(pygame.image.load(map_file), (0, 0))
